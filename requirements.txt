@@ -9,5 +9,5 @@ shap==0.46.0
 scipy==1.14.1
 scikit-plot==0.3.7
 skops==0.10.0
-twilio==8.12.1
+twilio>=8.13.0
 requests==2.32.5
