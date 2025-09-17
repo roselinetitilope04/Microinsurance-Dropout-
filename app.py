@@ -7,6 +7,7 @@ import requests
 import smtplib
 from email.mime.text import MIMEText
 
+#  commit changes
 # -----------------------------
 # Load Model
 # -----------------------------
@@ -30,7 +31,7 @@ if uploaded_file:
     st.dataframe(data.head())
 
     # Predict dropout risk
-    predictions = pipeline.predict_proba(data)[:,1]  # probability of dropout
+    predictions = pipeline.predict_proba(data)[:, 1]  # probability of dropout
     data["Dropout_Risk"] = predictions
     st.subheader("Predicted Dropout Risk")
     st.dataframe(data[["Dropout_Risk"]].head())
@@ -46,9 +47,9 @@ if uploaded_file:
     # Alert System
     # -----------------------------
     HIGH_RISK_THRESHOLD = 0.7
-    high_risk_data = data[data["Dropout_Risk"] > HIGH_RISK_THRESHOLD].copy()  # avoid SettingWithCopyWarning
+    high_risk_data = data[data["Dropout_Risk"] > HIGH_RISK_THRESHOLD].copy()
 
-    # Create a label for alerts (since no Beneficiary_Name)
+    # Create a label for alerts
     high_risk_data["Label"] = (
         "Age: " + high_risk_data["Age"].astype(str) +
         ", Region: " + high_risk_data["Region"].astype(str) +
@@ -62,35 +63,49 @@ if uploaded_file:
         st.warning(f"{len(high_risk_data)} beneficiaries are at high dropout risk!")
 
         # --- SMS via Twilio ---
-        TWILIO_SID = "your_sid"
-        TWILIO_AUTH = "your_auth_token"
-        TWILIO_PHONE = "+1234567890"
-        TARGET_PHONE = "+2345678901"
+        TWILIO_SID = st.secrets["twilio"]["sid"]
+        TWILIO_AUTH = st.secrets["twilio"]["auth_token"]
+        TWILIO_PHONE = st.secrets["twilio"]["phone"]
+        TARGET_PHONE = st.secrets["twilio"]["target"]
 
-        client = Client(TWILIO_SID, TWILIO_AUTH)
-        for _, row in high_risk_data.iterrows():
-            msg_body = f"ALERT: {row['Label']} has high dropout risk ({row['Dropout_Risk']:.2f})"
-            client.messages.create(body=msg_body, from_=TWILIO_PHONE, to=TARGET_PHONE)
+        if TWILIO_SID and TWILIO_AUTH:
+            client = Client(TWILIO_SID, TWILIO_AUTH)
+            for _, row in high_risk_data.iterrows():
+                msg_body = f"ALERT: {row['Label']} has high dropout risk ({row['Dropout_Risk']:.2f})"
+                client.messages.create(body=msg_body, from_=TWILIO_PHONE, to=TARGET_PHONE)
+            st.success("📱 SMS alerts sent!")
+        else:
+            st.info("📱 SMS not sent (Twilio credentials missing).")
 
         # --- Slack Webhook ---
-        SLACK_WEBHOOK = "your_slack_webhook_url"
-        for _, row in high_risk_data.iterrows():
-            payload = {"text": f"ALERT: {row['Label']} has high dropout risk ({row['Dropout_Risk']:.2f})"}
-            requests.post(SLACK_WEBHOOK, json=payload)
+        SLACK_WEBHOOK = st.secrets["slack"]["webhook"]
+        if SLACK_WEBHOOK:
+            for _, row in high_risk_data.iterrows():
+                payload = {"text": f"ALERT: {row['Label']} has high dropout risk ({row['Dropout_Risk']:.2f})"}
+                requests.post(SLACK_WEBHOOK, json=payload)
+            st.success("💬 Slack alerts sent!")
+        else:
+            st.info("💬 Slack alerts not sent (Webhook missing).")
 
         # --- Email Notification ---
         SMTP_SERVER = "smtp.gmail.com"
         SMTP_PORT = 587
-        EMAIL = "your_email@gmail.com"
-        PASSWORD = "your_email_password"
-        for _, row in high_risk_data.iterrows():
-            msg = MIMEText(f"ALERT: {row['Label']} has high dropout risk ({row['Dropout_Risk']:.2f})")
-            msg['Subject'] = "High Dropout Risk Alert"
-            msg['From'] = EMAIL
-            msg['To'] = "recipient_email@example.com"
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(EMAIL, PASSWORD)
-                server.send_message(msg)
+        EMAIL = st.secrets["email"]["address"]
+        PASSWORD = st.secrets["email"]["password"]
+        RECIPIENT = st.secrets["email"]["recipient"]
 
-    st.success("Predictions complete and alerts sent!")
+        if EMAIL and PASSWORD:
+            for _, row in high_risk_data.iterrows():
+                msg = MIMEText(f"ALERT: {row['Label']} has high dropout risk ({row['Dropout_Risk']:.2f})")
+                msg['Subject'] = "High Dropout Risk Alert"
+                msg['From'] = EMAIL
+                msg['To'] = RECIPIENT
+                with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                    server.starttls()
+                    server.login(EMAIL, PASSWORD)
+                    server.send_message(msg)
+            st.success("📧 Email alerts sent!")
+        else:
+            st.info("📧 Emails not sent (Email credentials missing).")
+
+    st.success("✅ Predictions complete!")
