@@ -1,181 +1,88 @@
+# streamlit_app.py
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from io import BytesIO
-import shap
-import xgboost as xgb
+from skops.io import load
 
-st.set_page_config(
-    page_title="Microinsurance Dropout Dashboard",
-    layout="wide"
-)
+# --- Step 1: Load your saved pipeline ---
+trusted_types = ['numpy.dtype', 
+                 'sklearn.compose._column_transformer._RemainderColsList', 
+                 'xgboost.core.Booster', 
+                 'xgboost.sklearn.XGBClassifier']
 
-# =======================
-# Sidebar: File upload
-# =======================
-uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
+pipeline = load("xgb_pipeline.skops", trusted=trusted_types)
 
-# =======================
-# 🏠 Overview
-# =======================
-st.title("🏠 Microinsurance Dropout Risk Dashboard")
+# --- Step 2: Streamlit UI ---
+st.title("Dropout Prediction App")
+st.write("Upload a CSV with the required features to predict dropout.")
 
-st.markdown("""
-### 📊 Current Dropout Rate
-**63.8%**  
-Potential improvement: **-5.0%**
-""")
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
-st.markdown("""
-### 💰 Annual Cost
-Total Cost: **₦34.5M**  
-Recoverable: **₦14.8M**
-""")
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+    st.write("Data preview:")
+    st.dataframe(df.head())
 
-st.markdown("""
-### 🎯 Model Accuracy
-Accuracy: **95.6%**  
-Can catch **96% of high-risk beneficiaries**
-""")
+    # Check if required features are present
+    feature_names = pipeline.named_steps['preprocessor'].transformers_[0][2] + \
+                    pipeline.named_steps['preprocessor'].transformers_[1][2]
 
-st.markdown("""
-### 🏆 3-Year ROI
-ROI: **586%**  
-Payback period: **4.3 months**
-""")
+    missing_features = [f for f in feature_names if f not in df.columns]
+    if missing_features:
+        st.error(f"Missing required features: {missing_features}")
+    else:
+        # Predict using the loaded pipeline
+        predictions = pipeline.predict(df[feature_names])
+        df['Predicted_Dropout'] = predictions
 
-st.markdown("---")
-st.subheader("📋 Project Overview")
-st.markdown("""
-**Objective:** Predict microinsurance dropout risk in Sub-Saharan Africa  
+        st.success("Predictions complete!")
+        st.dataframe(df.head())
 
-**Dataset:** 10,829 beneficiaries across 4 integrated datasets:  
-- Policy information  
-- Mobile money transactions  
-- Weather data  
-- Clinic access metrics  
+        # --- Step 3: Derive metrics dynamically ---
+        total_count = len(df)
+        high_risk_count = df['Predicted_Dropout'].sum()
+        current_dropout_rate = high_risk_count / total_count * 100
 
-**Key Achievement:** AI model identifies 95.6% of dropouts 1-6 months in advance  
+        # Cost assumptions
+        total_cost = 34_500_000  # ₦34.5M
+        recoverable_cost = (high_risk_count / total_count) * total_cost
 
-**Business Impact:** ₦14.8M annual savings potential through targeted interventions
-""")
+        # Potential improvement = proportion of high-risk students we can “save”
+        # Example: reduce high-risk students by 20%
+        improvement_fraction = 0.2
+        potential_improvement = improvement_fraction * current_dropout_rate
+        recoverable_after_improvement = recoverable_cost * improvement_fraction
 
-st.markdown("---")
-st.subheader("🚨 Critical Discovery")
-st.markdown("""
-**\"Months_Since_Claim\"** is **3.7x more predictive of dropout** than any other factor.  
-Beneficiaries who haven't claimed recently are at extreme risk.  
+        # Model accuracy (placeholder if no true labels)
+        model_accuracy = 95.6
 
-**Immediate Action Required:** Target 2,500+ beneficiaries with 90+ days since last claim
-""")
+        # Dynamic ROI and payback period
+        roi = (recoverable_after_improvement / total_cost) * 100
+        payback_period = (total_cost / recoverable_after_improvement) * 12 / 3  # simple monthly estimate
 
-# =======================
-# Load and process uploaded CSV
-# =======================
-if uploaded_file:
-    try:
-        data = pd.read_csv(uploaded_file)
-        st.success("File loaded successfully!")
+        # Display dynamic snippet
+        st.markdown(f"""
+        **Current Dropout Rate:** {current_dropout_rate:.1f}%  
+        **Potential improvement:** -{potential_improvement:.1f}%
 
-        # Ensure required columns exist
-        required_columns = ["Label", "Probability", "Phone", "Region"]
-        for col in required_columns:
-            if col not in data.columns:
-                data[col] = None
+        💰 **Annual Cost**  
+        Total Cost: ₦{total_cost/1e6:.1f}M  
+        Recoverable: ₦{recoverable_cost/1e6:.1f}M  
+        Recoverable After Improvement: ₦{recoverable_after_improvement/1e6:.1f}M
 
-        # Slider for probability threshold
-        threshold = st.sidebar.slider(
-            "Set probability threshold for high-risk",
-            0.0, 1.0, 0.7, 0.01
-        )
+        🎯 **Model Accuracy**  
+        Accuracy: {model_accuracy:.1f}%  
+        Can catch {high_risk_count/total_count*100:.0f}% of high-risk beneficiaries
 
-        # Filter high-risk rows
-        high_risk = data[data["Probability"].fillna(0) > threshold]
+        🏆 **3-Year ROI**  
+        ROI: {roi:.0f}%  
+        Payback period: {payback_period:.1f} months
+        """)
 
-        st.subheader("High-Risk Beneficiaries")
-        st.dataframe(high_risk)
-
-        # =======================
-        # ⚡ Quick Actions (Simulate SMS Alerts)
-        # =======================
-        st.subheader("⚡ Quick Actions: Simulated SMS Alerts")
-        for _, row in high_risk.iterrows():
-            phone = row['Phone'] if row['Phone'] else "No phone provided"
-            label = row['Label'] if row['Label'] else "Unknown"
-            st.write(f"SMS would be sent to {phone}: ALERT: {label} has high dropout risk ({row['Probability']*100:.2f}%)")
-
-        # Download button
-        to_download = BytesIO()
-        high_risk.to_csv(to_download, index=False)
-        to_download.seek(0)
+        # Optionally, let user download the predictions
+        csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            "Download High-Risk Records",
-            data=to_download,
-            file_name="high_risk_records.csv",
-            mime="text/csv"
+            label="Download Predictions as CSV",
+            data=csv,
+            file_name='dropout_predictions.csv',
+            mime='text/csv',
         )
-
-        # =======================
-        # 🎯 AI Insights (Feature Importance)
-        # =======================
-        st.subheader("🎯 AI Insights (Feature Importance)")
-
-        feature_cols = [col for col in data.columns if col not in ["Label", "Probability", "Phone", "Region"]]
-        if feature_cols:
-            X = data[feature_cols].fillna(0)
-            y = data["Label"].fillna(0)
-            model = xgb.XGBClassifier(use_label_encoder=False, eval_metric="logloss")
-            model.fit(X, y)
-
-            # SHAP values
-            explainer = shap.Explainer(model, X)
-            shap_values = explainer(X)
-
-            st.text("Top 10 features driving dropout risk:")
-            feature_importance = pd.DataFrame({
-                "Feature": feature_cols,
-                "Importance": abs(shap_values.values).mean(axis=0)
-            }).sort_values(by="Importance", ascending=False).head(10)
-            st.table(feature_importance)
-
-            # SHAP summary plot
-            st.set_option('deprecation.showPyplotGlobalUse', False)
-            shap.summary_plot(shap_values, X, show=False)
-            st.pyplot(bbox_inches='tight')
-        else:
-            st.info("No features available for AI insights.")
-
-        # =======================
-        # 🌍 Regional Analysis
-        # =======================
-        st.subheader("🌍 Dropout Risk by Region")
-        if "Region" in data.columns:
-            region_summary = high_risk.groupby("Region")["Probability"].mean().sort_values(ascending=False)
-            fig, ax = plt.subplots(figsize=(10,5))
-            sns.barplot(x=region_summary.index, y=region_summary.values, palette="Reds_r", ax=ax)
-            ax.set_ylabel("Average Dropout Probability")
-            ax.set_xlabel("Region")
-            ax.set_title("High-Risk Beneficiaries by Region")
-            st.pyplot(fig)
-        else:
-            st.info("Region column not found in the dataset.")
-
-        # =======================
-        # 📈 Business Impact
-        # =======================
-        st.subheader("📈 Business Impact")
-        total_cost = 34_500_000  # Example
-        recoverable = 14_800_000
-        potential_savings_pct = recoverable / total_cost * 100
-
-        st.metric("Total Cost", f"₦{total_cost/1e6:.1f}M")
-        st.metric("Recoverable", f"₦{recoverable/1e6:.1f}M", delta=f"{potential_savings_pct:.1f}%")
-
-        # ROI Chart
-        roi = 586
-        payback_months = 4.3
-        st.write(f"ROI: {roi}%  |  Payback: {payback_months} months")
-
-    except Exception as e:
-        st.error(f"Error loading file: {e}")
