@@ -2,12 +2,16 @@
 import streamlit as st
 import pandas as pd
 from skops.io import load
+from xgboost import XGBClassifier
+from sklearn.pipeline import Pipeline
+import numpy as np
 
 # --- Step 1: Load your saved pipeline ---
-trusted_types = ['numpy.dtype', 
-                 'sklearn.compose._column_transformer._RemainderColsList', 
-                 'xgboost.core.Booster', 
-                 'xgboost.sklearn.XGBClassifier']
+trusted_types = [
+    np.dtype,
+    XGBClassifier,
+    Pipeline
+]
 
 pipeline = load("xgb_pipeline.skops", trusted=trusted_types)
 
@@ -47,7 +51,6 @@ if uploaded_file is not None:
         recoverable_cost = (high_risk_count / total_count) * total_cost
 
         # Potential improvement = proportion of high-risk students we can “save”
-        # Example: reduce high-risk students by 20%
         improvement_fraction = 0.2
         potential_improvement = improvement_fraction * current_dropout_rate
         recoverable_after_improvement = recoverable_cost * improvement_fraction
