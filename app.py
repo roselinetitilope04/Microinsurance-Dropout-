@@ -2,28 +2,46 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from skops.io import load
+from skops.io import load, get_untrusted_types
 from xgboost import XGBClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-# --- Step 1: Define trusted types (strings for internal/private classes) ---
-trusted_types = [
-    "numpy.dtype",
-    "sklearn.compose._column_transformer._RemainderColsList",
-    "xgboost.core.Booster",
-    "xgboost.sklearn.XGBClassifier",
-    Pipeline,
-    ColumnTransformer,
-    OneHotEncoder,
-    StandardScaler
-]
+# --- Step 1: Robust pipeline loader ---
+def load_pipeline_skops(file_path="xgb_pipeline.skops"):
+    """
+    Load a skops pipeline safely, dynamically trusting any new types found.
+    """
+    # Start with known safe classes
+    trusted = [
+        "numpy.dtype",
+        "xgboost.core.Booster",
+        "xgboost.sklearn.XGBClassifier",
+        Pipeline,
+        ColumnTransformer,
+        OneHotEncoder,
+        StandardScaler
+    ]
+    
+    try:
+        return load(file_path, trusted=trusted)
+    except Exception:
+        # Detect untrusted types from the file
+        untrusted = get_untrusted_types(file=file_path)
+        if untrusted:
+            st.warning("⚠️ Auto-adding untrusted types detected in pipeline:")
+            st.json([str(u) for u in untrusted])
+            # Add all untrusted types dynamically
+            trusted.extend(untrusted)
+            return load(file_path, trusted=trusted)
+        else:
+            raise
 
-# --- Step 2: Load the saved pipeline ---
-pipeline = load("xgb_pipeline.skops", trusted=trusted_types)
+# Load the pipeline
+pipeline = load_pipeline_skops()
 
-# --- Step 3: Streamlit UI ---
+# --- Step 2: Streamlit UI ---
 st.title("Dropout Prediction App")
 st.write("Upload a CSV with the required features to predict dropout.")
 
@@ -49,7 +67,7 @@ if uploaded_file is not None:
         st.success("Predictions complete!")
         st.dataframe(df.head())
 
-        # --- Step 4: Derive metrics dynamically ---
+        # --- Step 3: Derive metrics dynamically ---
         total_count = len(df)
         high_risk_count = df['Predicted_Dropout'].sum()
         current_dropout_rate = high_risk_count / total_count * 100
@@ -58,7 +76,7 @@ if uploaded_file is not None:
         total_cost = 34_500_000  # ₦34.5M
         recoverable_cost = (high_risk_count / total_count) * total_cost
 
-        # Potential improvement = proportion of high-risk students we can “save”
+        # Potential improvement = proportion of high-risk students we can "save"
         improvement_fraction = 0.2
         potential_improvement = improvement_fraction * current_dropout_rate
         recoverable_after_improvement = recoverable_cost * improvement_fraction
