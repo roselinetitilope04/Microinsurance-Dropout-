@@ -2,41 +2,26 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-
-from skops.io import load, get_untrusted_types
+from skops.io import load
 from xgboost import XGBClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.compose._column_transformer import _RemainderColsList  # 👈 internal class
 
-# --- Step 1: Define initial trusted types ---
+# --- Step 1: Define trusted types (strings for internal/private classes) ---
 trusted_types = [
-    np.dtype,
+    "numpy.dtype",
+    "sklearn.compose._column_transformer._RemainderColsList",
+    "xgboost.core.Booster",
+    "xgboost.sklearn.XGBClassifier",
     Pipeline,
     ColumnTransformer,
     OneHotEncoder,
-    StandardScaler,
-    XGBClassifier,
-    _RemainderColsList,  # 👈 add internal class explicitly
+    StandardScaler
 ]
 
-# --- Step 2: Try loading pipeline with fallback ---
-def load_pipeline():
-    try:
-        return load("xgb_pipeline.skops", trusted=trusted_types)
-    except Exception:
-        # Detect untrusted types AFTER a failed load
-        untrusted = get_untrusted_types(file="xgb_pipeline.skops")
-        if untrusted:
-            st.warning("⚠️ Auto-adding untrusted types:")
-            st.json([str(u) for u in untrusted])
-            trusted_types.extend(untrusted)
-            return load("xgb_pipeline.skops", trusted=trusted_types)
-        else:
-            raise
-
-pipeline = load_pipeline()
+# --- Step 2: Load the saved pipeline ---
+pipeline = load("xgb_pipeline.skops", trusted=trusted_types)
 
 # --- Step 3: Streamlit UI ---
 st.title("Dropout Prediction App")
