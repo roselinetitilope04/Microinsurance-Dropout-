@@ -1,21 +1,43 @@
 # streamlit_app.py
 import streamlit as st
 import pandas as pd
-from skops.io import load
-from xgboost import XGBClassifier
-from sklearn.pipeline import Pipeline
 import numpy as np
 
-# --- Step 1: Load your saved pipeline ---
+from skops.io import load, get_untrusted_types
+from xgboost import XGBClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+# --- Step 1: Define initial trusted types ---
 trusted_types = [
     np.dtype,
+    Pipeline,
+    ColumnTransformer,
+    OneHotEncoder,
+    StandardScaler,
     XGBClassifier,
-    Pipeline
 ]
 
-pipeline = load("xgb_pipeline.skops", trusted=trusted_types)
+# --- Step 2: Try loading pipeline with fallback ---
+def load_pipeline():
+    try:
+        return load("xgb_pipeline.skops", trusted=trusted_types)
+    except Exception:
+        # Detect untrusted types
+        untrusted = get_untrusted_types("xgb_pipeline.skops")
+        if untrusted:
+            st.warning("⚠️ Auto-adding untrusted types:")
+            st.json([str(u) for u in untrusted])
+            # Add them to trusted_types dynamically
+            trusted_types.extend(untrusted)
+            return load("xgb_pipeline.skops", trusted=trusted_types)
+        else:
+            raise
 
-# --- Step 2: Streamlit UI ---
+pipeline = load_pipeline()
+
+# --- Step 3: Streamlit UI ---
 st.title("Dropout Prediction App")
 st.write("Upload a CSV with the required features to predict dropout.")
 
@@ -41,7 +63,7 @@ if uploaded_file is not None:
         st.success("Predictions complete!")
         st.dataframe(df.head())
 
-        # --- Step 3: Derive metrics dynamically ---
+        # --- Step 4: Derive metrics dynamically ---
         total_count = len(df)
         high_risk_count = df['Predicted_Dropout'].sum()
         current_dropout_rate = high_risk_count / total_count * 100
