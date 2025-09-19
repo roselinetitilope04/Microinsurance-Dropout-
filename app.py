@@ -1,4 +1,4 @@
-# streamlit_app.py
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -19,18 +19,24 @@ trusted_types = [
     XGBClassifier,
 ]
 
-# --- Step 2: Try loading pipeline with fallback ---
+# --- Step 2: Load pipeline with auto-trust fallback ---
 def load_pipeline():
     try:
         return load("xgb_pipeline.skops", trusted=trusted_types)
     except Exception:
-        # Detect untrusted types
         untrusted = get_untrusted_types("xgb_pipeline.skops")
         if untrusted:
             st.warning("⚠️ Auto-adding untrusted types:")
             st.json([str(u) for u in untrusted])
-            # Add them to trusted_types dynamically
-            trusted_types.extend(untrusted)
+
+            for u in untrusted:
+                try:
+                    module = __import__(u.module, fromlist=[u.name])
+                    cls = getattr(module, u.name)
+                    trusted_types.append(cls)
+                except Exception as e:
+                    st.error(f"❌ Could not import {u}: {e}")
+
             return load("xgb_pipeline.skops", trusted=trusted_types)
         else:
             raise
@@ -60,7 +66,7 @@ if uploaded_file is not None:
         predictions = pipeline.predict(df[feature_names])
         df['Predicted_Dropout'] = predictions
 
-        st.success("Predictions complete!")
+        st.success("✅ Predictions complete!")
         st.dataframe(df.head())
 
         # --- Step 4: Derive metrics dynamically ---
@@ -72,7 +78,7 @@ if uploaded_file is not None:
         total_cost = 34_500_000  # ₦34.5M
         recoverable_cost = (high_risk_count / total_count) * total_cost
 
-        # Potential improvement = proportion of high-risk students we can “save”
+        # Potential improvement (20% reduction in high-risk)
         improvement_fraction = 0.2
         potential_improvement = improvement_fraction * current_dropout_rate
         recoverable_after_improvement = recoverable_cost * improvement_fraction
@@ -80,33 +86,33 @@ if uploaded_file is not None:
         # Model accuracy (placeholder if no true labels)
         model_accuracy = 95.6
 
-        # Dynamic ROI and payback period
+        # ROI and payback period
         roi = (recoverable_after_improvement / total_cost) * 100
-        payback_period = (total_cost / recoverable_after_improvement) * 12 / 3  # simple monthly estimate
+        payback_period = (total_cost / recoverable_after_improvement) * 12 / 3  # monthly est.
 
-        # Display dynamic snippet
+        # Display dynamic results
         st.markdown(f"""
-        **Current Dropout Rate:** {current_dropout_rate:.1f}%  
-        **Potential improvement:** -{potential_improvement:.1f}%
+        **📊 Current Dropout Rate:** {current_dropout_rate:.1f}%  
+        **📉 Potential improvement:** -{potential_improvement:.1f}%
 
         💰 **Annual Cost**  
-        Total Cost: ₦{total_cost/1e6:.1f}M  
-        Recoverable: ₦{recoverable_cost/1e6:.1f}M  
-        Recoverable After Improvement: ₦{recoverable_after_improvement/1e6:.1f}M
+        - Total Cost: ₦{total_cost/1e6:.1f}M  
+        - Recoverable: ₦{recoverable_cost/1e6:.1f}M  
+        - Recoverable After Improvement: ₦{recoverable_after_improvement/1e6:.1f}M
 
         🎯 **Model Accuracy**  
-        Accuracy: {model_accuracy:.1f}%  
-        Can catch {high_risk_count/total_count*100:.0f}% of high-risk beneficiaries
+        - Accuracy: {model_accuracy:.1f}%  
+        - Captures {high_risk_count/total_count*100:.0f}% of high-risk beneficiaries
 
         🏆 **3-Year ROI**  
-        ROI: {roi:.0f}%  
-        Payback period: {payback_period:.1f} months
+        - ROI: {roi:.0f}%  
+        - Payback period: {payback_period:.1f} months
         """)
 
-        # Optionally, let user download the predictions
+        # Download button
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="Download Predictions as CSV",
+            label="⬇️ Download Predictions as CSV",
             data=csv,
             file_name='dropout_predictions.csv',
             mime='text/csv',
