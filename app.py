@@ -8,6 +8,7 @@ from xgboost import XGBClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose._column_transformer import _RemainderColsList  # 👈 internal class
 
 # --- Step 1: Define initial trusted types ---
 trusted_types = [
@@ -17,6 +18,7 @@ trusted_types = [
     OneHotEncoder,
     StandardScaler,
     XGBClassifier,
+    _RemainderColsList,  # 👈 add internal class explicitly
 ]
 
 # --- Step 2: Try loading pipeline with fallback ---
@@ -25,7 +27,7 @@ def load_pipeline():
         return load("xgb_pipeline.skops", trusted=trusted_types)
     except Exception:
         # Detect untrusted types AFTER a failed load
-        untrusted = get_untrusted_types()
+        untrusted = get_untrusted_types(file="xgb_pipeline.skops")
         if untrusted:
             st.warning("⚠️ Auto-adding untrusted types:")
             st.json([str(u) for u in untrusted])
